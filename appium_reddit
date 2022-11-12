@@ -1,10 +1,12 @@
-from appium import webdriver
 import pathlib
-from appium.webdriver.webelement import WebElement
-from appium.webdriver.common.touch_action import TouchAction
+from typing import Callable
+from appium import webdriver
 from appium.webdriver.common.appiumby import AppiumBy
-from selenium.common.exceptions import NoSuchElementException
-import logging
+from appium.webdriver.common.touch_action import TouchAction
+from appium.webdriver.webelement import WebElement
+from selenium.common.exceptions import (InvalidSelectorException,
+                                        NoSuchElementException)
+
 app = pathlib.Path('.\\Reddit_2022.41.1_Apkpure.apk').absolute().as_posix()
 
 
@@ -75,27 +77,30 @@ class SearchResultsPage:
         posts = visible_search_results.find_elements(AppiumBy.CLASS_NAME, "android.view.ViewGroup")
         return posts
 
-    # @staticmethod
-    # def try_except(callable, *args):
-    #     try:
-    #         return callable(*args)
-    #     except (NoSuchElementException, InvalidSelectorException) as ex:
-    #         print(f"Exception occured: {ex}, with args: {args}, for function: {callable}")
+    @staticmethod
+    def try_except(callable: Callable, args):
+        try:
+            return callable(*args)
+        except (NoSuchElementException, InvalidSelectorException) as ex:
+            print(f"Exception occured: {type(ex).__name__}, with args: {args}, for function: {callable.__name__}")
 
     def posts_on_page(self, posts: list[WebElement]):
         for post in posts:
-            try:
-                post_footer = post.find_element(AppiumBy.ID, "com.reddit.frontpage:id/footer")
-                vote = post_footer.find_element(AppiumBy.ID, "com.reddit.frontpage:id/upvotes").text
-                comment_count = post_footer.find_element(AppiumBy.ID, "com.reddit.frontpage:id/comments").text
-                id_key = int(vote.split(" ")[0])
-                self.post_count.append(id_key)      
-
-                username = post.find_element(AppiumBy.ID, "com.reddit.frontpage:id/poster_username").text
-                time_posted = post.find_element(AppiumBy.ID, "com.reddit.frontpage:id/time_since").text
-                self.posts.update({id_key: {"Comments": comment_count, "Username": username, "Time": time_posted}})
-            except NoSuchElementException:
+            post_footer = self.try_except(post.find_element, (AppiumBy.ID, "com.reddit.frontpage:id/footer"))
+            if not post_footer:
                 continue
+            post_user = self.try_except(post.find_element, (AppiumBy.ID, "com.reddit.frontpage:id/poster_username"))
+            if not post_user:
+                continue
+
+            vote = post_footer.find_element(AppiumBy.ID, "com.reddit.frontpage:id/upvotes").text
+            comment_count = post_footer.find_element(AppiumBy.ID, "com.reddit.frontpage:id/comments").text
+            id_key = int(vote.split(" ")[0])
+            self.post_count.append(id_key)      
+            username = post_user.text
+            time_posted = post.find_element(AppiumBy.ID, "com.reddit.frontpage:id/time_since").text
+
+            self.posts.update({id_key: {"Comments": comment_count, "Username": username, "Time": time_posted}})
 
     def scroll_results(self):
         self.actions.long_press(x=445, y=1899)
@@ -143,4 +148,3 @@ if __name__ == "__main__":
     
     else:
         search_results_page.post_with_most_upvotes()
-
