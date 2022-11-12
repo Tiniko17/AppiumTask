@@ -1,26 +1,146 @@
 from appium import webdriver
 import pathlib
-from appium.webdriver.common.mobileby import MobileBy
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-
+from appium.webdriver.webelement import WebElement
+from appium.webdriver.common.touch_action import TouchAction
+from appium.webdriver.common.appiumby import AppiumBy
+from selenium.common.exceptions import NoSuchElementException
+import logging
 app = pathlib.Path('.\\Reddit_2022.41.1_Apkpure.apk').absolute().as_posix()
 
-desired_caps = {
-    "deviceName": "emulator-5554",
-    "platformName": "Android",
-    "version" : "11.0",
-    "app": f"{app}",
-    "appPackage": "com.reddit.frontpage",
-    "automationName": "UiAutomator2"
-}
 
-driver = webdriver.Remote("http://localhost:4723/wd/hub", desired_caps)
+class BaseSetup:
 
-inputA = WebDriverWait(driver, 20).until(
-    EC.element_to_be_clickable((MobileBy.ACCESSIBILITY_ID, "Search"))
-)
-inputA.click()
+    def __init__(self):
+
+        self.desired_capabilities = {
+            "deviceName": "emulator-5554",
+            "platformName": "Android",
+            "version" : "11.0",
+            "app": f"{app}",
+            "appPackage": "com.reddit.frontpage",
+            "appActivity": "com.reddit.frontpage.main.MainActivity",
+            "automationName": "UiAutomator2"
+        }
+
+        self.driver = webdriver.Remote("http://localhost:4723/wd/hub", self.desired_capabilities)
 
 
-driver.quit()
+class MainPage:
+
+    def __init__(self, setup: BaseSetup) -> None:
+        self.setup = setup
+        self.driver = setup.driver
+    
+    def click_search(self):
+        search_button = self.driver.find_element(AppiumBy.ACCESSIBILITY_ID, "Search")
+        search_button.click()
+
+
+class SearchPage:
+
+    def __init__(self, setup: BaseSetup) -> None:
+        self.setup = setup
+        self.driver = setup.driver
+    
+    def perform_search(self, search_keyword: str):
+        search = self.driver.find_element(AppiumBy.ID, "com.reddit.frontpage:id/search")
+        search.send_keys(search_keyword)
+    
+    def show_results(self):
+        results = self.driver.find_element(AppiumBy.ID, 'com.reddit.frontpage:id/community_results')
+        results.click()
+
+
+class SearchResultsPage:
+
+    def __init__(self, setup: BaseSetup) -> None:
+        self.setup = setup
+        self.driver = setup.driver
+        self.actions = TouchAction(self.driver)
+        self.posts = {}
+        self.upvotes = {}
+        self.post_count = []
+    
+    def click_sort(self):
+        self.driver.implicitly_wait(3)
+        sort = self.driver.find_element(by="xpath", value="/hierarchy/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/androidx.drawerlayout.widget.DrawerLayout/android.view.ViewGroup/android.widget.FrameLayout/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.ViewAnimator/android.view.ViewGroup/android.view.ViewGroup/android.widget.FrameLayout/android.view.ViewGroup/androidx.viewpager.widget.ViewPager/android.widget.ViewAnimator/android.view.ViewGroup/androidx.recyclerview.widget.RecyclerView/android.view.ViewGroup[1]/android.view.View/android.widget.HorizontalScrollView/android.view.View[1]/android.widget.Button")
+        sort.click()
+
+    def sort_by_hot(self):
+        hot = self.driver.find_element(by="xpath", value='/hierarchy/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/androidx.drawerlayout.widget.DrawerLayout/android.view.ViewGroup/android.widget.FrameLayout/android.view.ViewGroup/android.view.ViewGroup/android.widget.FrameLayout/android.widget.LinearLayout/androidx.recyclerview.widget.RecyclerView/android.view.ViewGroup[2]')
+        hot.click()
+
+    def search_results(self) -> list[WebElement]:
+        visible_search_results = self.driver.find_element(AppiumBy.ID, 'com.reddit.frontpage:id/search_results')
+        posts = visible_search_results.find_elements(AppiumBy.CLASS_NAME, "android.view.ViewGroup")
+        return posts
+
+    # @staticmethod
+    # def try_except(callable, *args):
+    #     try:
+    #         return callable(*args)
+    #     except (NoSuchElementException, InvalidSelectorException) as ex:
+    #         print(f"Exception occured: {ex}, with args: {args}, for function: {callable}")
+
+    def posts_on_page(self, posts: list[WebElement]):
+        for post in posts:
+            try:
+                post_footer = post.find_element(AppiumBy.ID, "com.reddit.frontpage:id/footer")
+                vote = post_footer.find_element(AppiumBy.ID, "com.reddit.frontpage:id/upvotes").text
+                comment_count = post_footer.find_element(AppiumBy.ID, "com.reddit.frontpage:id/comments").text
+                id_key = int(vote.split(" ")[0])
+                self.post_count.append(id_key)      
+
+                username = post.find_element(AppiumBy.ID, "com.reddit.frontpage:id/poster_username").text
+                time_posted = post.find_element(AppiumBy.ID, "com.reddit.frontpage:id/time_since").text
+                self.posts.update({id_key: {"Comments": comment_count, "Username": username, "Time": time_posted}})
+            except NoSuchElementException:
+                continue
+
+    def scroll_results(self):
+        self.actions.long_press(x=445, y=1899)
+        self.actions.move_to(x=445, y=450)
+        self.actions.release()
+        self.actions.perform()
+
+    def post_with_most_upvotes(self):
+        popular_post_key = max(self.post_count)
+        popular_post = self.posts[popular_post_key]
+        comment_count = popular_post["Comments"]
+        username = popular_post["Username"]
+        time_posted = popular_post["Time"]
+
+        post_info = f"The post with the most number of upvotes is posted by {username}, {time_posted} ago and has {comment_count}"
+        print(post_info)
+
+
+
+if __name__ == "__main__":
+    base_setup = BaseSetup()
+
+    main_mage = MainPage(base_setup)
+    main_mage.driver.implicitly_wait(25)
+    main_mage.click_search()
+
+    search_page = SearchPage(base_setup)
+    search_page.driver.implicitly_wait(2)
+    search_page.perform_search("banking")
+    search_page.driver.implicitly_wait(2)
+    search_page.show_results()
+
+    search_results_page = SearchResultsPage(base_setup)
+    search_results_page.driver.implicitly_wait(2)
+    search_results_page.click_sort()
+    search_results_page.driver.implicitly_wait(2)
+    search_results_page.sort_by_hot()
+
+    while len(search_results_page.post_count) < 20:
+        results_on_page = search_results_page.search_results()
+        search_results_page.driver.implicitly_wait(2)
+        search_results_page.posts_on_page(results_on_page)
+        search_results_page.driver.implicitly_wait(2)
+        search_results_page.scroll_results()
+    
+    else:
+        search_results_page.post_with_most_upvotes()
+
